@@ -1,16 +1,12 @@
 import os
 import logging
-import re
 
 import httpx
-from dotenv import load_dotenv
-
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -18,14 +14,20 @@ from telegram.ext import (
     ContextTypes,
 )
 
-load_dotenv()
+# =========================================================
+# CONFIG
+# =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TMDB_TOKEN = os.getenv("TMDB_TOKEN")
 
-TMDB_SEARCH_URL = "https://api.themoviedb.org/3/search/movie"
-TMDB_MOVIE_URL = "https://api.themoviedb.org/3/movie"
+TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/w500"
+
+
+# =========================================================
+# LOGGING
+# =========================================================
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -36,57 +38,18 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# TMDB SEARCH
+# TMDB API
 # =========================================================
 
-async def search_movies(movie_name: str):
-
+async def tmdb_request(endpoint, params=None):
     headers = {
         "Authorization": f"Bearer {TMDB_TOKEN}",
         "accept": "application/json",
     }
 
-    params = {
-        "query": movie_name,
-        "language": "en-US",
-        "include_adult": "false",
-        "page": 1,
-    }
-
     async with httpx.AsyncClient(timeout=20) as client:
-
         response = await client.get(
-            TMDB_SEARCH_URL,
-            headers=headers,
-            params=params,
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-    return data.get("results", [])
-
-
-# =========================================================
-# MOVIE DETAILS
-# =========================================================
-
-async def get_movie_details(movie_id: int):
-
-    headers = {
-        "Authorization": f"Bearer {TMDB_TOKEN}",
-        "accept": "application/json",
-    }
-
-    params = {
-        "language": "en-US",
-    }
-
-    async with httpx.AsyncClient(timeout=20) as client:
-
-        response = await client.get(
-            f"{TMDB_MOVIE_URL}/{movie_id}",
+            f"{TMDB_BASE_URL}{endpoint}",
             headers=headers,
             params=params,
         )
@@ -96,8 +59,35 @@ async def get_movie_details(movie_id: int):
         return response.json()
 
 
+async def search_movies(movie_name):
+    params = {
+        "query": movie_name,
+        "language": "en-US",
+        "include_adult": "false",
+        "page": 1,
+    }
+
+    data = await tmdb_request(
+        "/search/movie",
+        params,
+    )
+
+    return data.get("results", [])
+
+
+async def get_movie_details(movie_id):
+    params = {
+        "language": "en-US",
+    }
+
+    return await tmdb_request(
+        f"/movie/{movie_id}",
+        params,
+    )
+
+
 # =========================================================
-# START
+# /start
 # =========================================================
 
 async def start(
@@ -117,7 +107,7 @@ async def start(
     text = (
         "🎬 <b>Welcome to Movie Search Bot!</b>\n\n"
 
-        "ကြည့်ရှုလိုသော Movie ကို အောက်ပါပုံစံအတိုင်း "
+        "ကြည့်လိုသော Movie ကို အောက်ပါပုံစံအတိုင်း "
         "ရိုက်ထည့်ပြီး ရှာဖွေနိုင်ပါတယ် 👇\n\n"
 
         "📌 <b>အသုံးပြုပုံ</b>\n\n"
@@ -125,17 +115,17 @@ async def start(
         "ဥပမာ —\n"
         "<code>/interstellar</code>\n\n"
 
-        "ဒါမှမဟုတ်\n"
         "<code>/inception</code>\n\n"
+
+        "<code>/avatar</code>\n\n"
 
         "🔎 Bot က Movie ကိုရှာပြီး —\n\n"
 
-        "🎬 Movie Information\n"
+        "🎬 Movie Title\n"
+        "🖼️ Poster\n"
         "📅 Release Year\n"
         "⭐ Rating\n"
-        "📝 Overview\n"
-        "🇲🇲 Myanmar Subtitle\n"
-        "🇬🇧 English Subtitle\n\n"
+        "📝 Overview\n\n"
 
         "တို့ကို ပြသပေးပါမယ်။\n\n"
 
@@ -159,27 +149,24 @@ async def movie_command(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    message_text = update.message.text.strip()
+    command_text = update.message.text.strip()
 
-    # / နောက်က movie title ကိုယူ
-    movie_name = message_text[1:].strip()
+    # "/" ဖယ်ပြီး Movie title ရယူ
+    movie_name = command_text[1:].strip()
 
     if not movie_name:
-
         await update.message.reply_text(
             "❌ Movie name ထည့်ပေးပါ။\n\n"
             "ဥပမာ:\n"
             "<code>/interstellar</code>",
             parse_mode="HTML",
         )
-
         return
 
-    # Telegram command တွေကို movie search မလုပ်ရန်
+    # System commands
     blocked_commands = {
         "start",
         "help",
-        "settings",
     }
 
     if movie_name.lower() in blocked_commands:
@@ -198,13 +185,14 @@ async def movie_command(
 
             await searching_message.edit_text(
                 f"❌ <b>{movie_name}</b> ကို မတွေ့ပါဘူး။\n\n"
-                "Movie title ကို English လို ပြန်စမ်းကြည့်ပါ။",
+                "Movie title ကို English လို "
+                "ပြန်စမ်းကြည့်ပါ။",
                 parse_mode="HTML",
             )
 
             return
 
-        # ပထမဆုံး 5 ခုသာပြ
+        # ပထမဆုံး result 5 ခု
         movies = movies[:5]
 
         keyboard = []
@@ -236,7 +224,8 @@ async def movie_command(
 
             button_text = (
                 f"{index + 1}️⃣ "
-                f"{title} ({year}) ⭐ {rating:.1f}"
+                f"{title} ({year}) "
+                f"⭐ {rating:.1f}"
             )
 
             keyboard.append([
@@ -249,7 +238,7 @@ async def movie_command(
         text = (
             "🔎 <b>Search Results</b>\n\n"
             f"Search: <code>{movie_name}</code>\n\n"
-            "ကြည့်လိုသော Movie ကို ရွေးပါ 👇"
+            "မှန်ကန်တဲ့ Movie ကို ရွေးပါ 👇"
         )
 
         await searching_message.edit_text(
@@ -260,6 +249,18 @@ async def movie_command(
             ),
         )
 
+    except httpx.HTTPStatusError as error:
+
+        logger.error(
+            "TMDB HTTP error: %s",
+            error,
+        )
+
+        await searching_message.edit_text(
+            "⚠️ TMDB API နဲ့ ချိတ်ဆက်ရာမှာ "
+            "ပြဿနာဖြစ်နေပါတယ်။"
+        )
+
     except Exception:
 
         logger.exception(
@@ -267,8 +268,8 @@ async def movie_command(
         )
 
         await searching_message.edit_text(
-            "⚠️ Movie ရှာတဲ့အချိန် Error ဖြစ်သွားပါတယ်။\n\n"
-            "ခဏနေပြီး ပြန်စမ်းကြည့်ပါ။"
+            "⚠️ Movie ရှာတဲ့အချိန် "
+            "Error ဖြစ်သွားပါတယ်။"
         )
 
 
@@ -318,26 +319,28 @@ async def movie_selected(
 
         overview = movie.get(
             "overview",
-            "Overview မရှိပါ။",
-        )
-
-        poster_path = movie.get(
-            "poster_path"
+            "",
         )
 
         if not overview:
             overview = "Overview မရှိပါ။"
 
+        poster_path = movie.get(
+            "poster_path"
+        )
+
         text = (
-            f"🎬 <b>{title}</b>\n"
+            f"🎬 <b>{title}</b>\n\n"
             f"📅 Year: <b>{year}</b>\n"
             f"⭐ Rating: <b>{rating:.1f}/10</b>\n\n"
-
             f"📝 <b>Overview</b>\n"
             f"{overview}\n\n"
 
-            "🇲🇲 Myanmar Subtitle: 🔎 Checking...\n"
-            "🇬🇧 English Subtitle: 🔎 Checking..."
+            "🇲🇲 Myanmar Subtitle: "
+            "🔎 Checking...\n"
+
+            "🇬🇧 English Subtitle: "
+            "🔎 Checking..."
         )
 
         keyboard = InlineKeyboardMarkup([
@@ -359,6 +362,7 @@ async def movie_selected(
             ],
         ])
 
+        # Poster ရှိရင်
         if poster_path:
 
             poster_url = (
@@ -391,15 +395,15 @@ async def movie_selected(
         )
 
         await query.edit_message_text(
-            "⚠️ Movie information ရယူလို့မရပါဘူး။"
+            "⚠️ Movie information ရယူလို့ မရပါဘူး။"
         )
 
 
 # =========================================================
-# SUBTITLE LANGUAGE
+# SUBTITLE BUTTON
 # =========================================================
 
-async def subtitle_language(
+async def subtitle_button(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
@@ -411,14 +415,14 @@ async def subtitle_language(
     parts = query.data.split(":")
 
     language = parts[1]
-    movie_id = parts[2]
 
     if language == "mm":
 
         text = (
             "🇲🇲 <b>Myanmar Subtitle</b>\n\n"
             "🔎 Myanmar Subtitle ရှိ/မရှိ "
-            "စစ်ဆေးနေပါတယ်..."
+            "စစ်ဆေးမယ့် system ကို "
+            "နောက်အဆင့်မှာ ထည့်မယ်။"
         )
 
     else:
@@ -426,7 +430,8 @@ async def subtitle_language(
         text = (
             "🇬🇧 <b>English Subtitle</b>\n\n"
             "🔎 English Subtitle ရှိ/မရှိ "
-            "စစ်ဆေးနေပါတယ်..."
+            "စစ်ဆေးမယ့် system ကို "
+            "နောက်အဆင့်မှာ ထည့်မယ်။"
         )
 
     await query.message.reply_text(
@@ -442,17 +447,13 @@ async def subtitle_language(
 def main():
 
     if not BOT_TOKEN:
-
         raise ValueError(
-            "BOT_TOKEN မတွေ့ပါ။ "
-            "Render Environment Variables ကိုစစ်ပါ။"
+            "BOT_TOKEN မတွေ့ပါ။"
         )
 
     if not TMDB_TOKEN:
-
         raise ValueError(
-            "TMDB_TOKEN မတွေ့ပါ။ "
-            "Render Environment Variables ကိုစစ်ပါ။"
+            "TMDB_TOKEN မတွေ့ပါ။"
         )
 
     application = (
@@ -469,7 +470,9 @@ def main():
         )
     )
 
-    # Any unknown /movie-name command
+    # /interstellar
+    # /avatar
+    # /inception
     application.add_handler(
         CommandHandler(
             ".*",
@@ -477,7 +480,7 @@ def main():
         )
     )
 
-    # Movie selection
+    # Movie result button
     application.add_handler(
         CallbackQueryHandler(
             movie_selected,
@@ -485,10 +488,10 @@ def main():
         )
     )
 
-    # Subtitle selection
+    # Subtitle button
     application.add_handler(
         CallbackQueryHandler(
-            subtitle_language,
+            subtitle_button,
             pattern=r"^subtitle:",
         )
     )
