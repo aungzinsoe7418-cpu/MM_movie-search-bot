@@ -2,17 +2,22 @@ import os
 import logging
 
 import httpx
+
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
     Application,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    filters,
 )
+
 
 # =========================================================
 # CONFIG
@@ -42,6 +47,9 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 async def tmdb_request(endpoint, params=None):
+    if not TMDB_TOKEN:
+        raise ValueError("TMDB_TOKEN မတွေ့ပါ။")
+
     headers = {
         "Authorization": f"Bearer {TMDB_TOKEN}",
         "accept": "application/json",
@@ -59,6 +67,10 @@ async def tmdb_request(endpoint, params=None):
         return response.json()
 
 
+# =========================================================
+# SEARCH MOVIES
+# =========================================================
+
 async def search_movies(movie_name):
     params = {
         "query": movie_name,
@@ -75,6 +87,10 @@ async def search_movies(movie_name):
     return data.get("results", [])
 
 
+# =========================================================
+# MOVIE DETAILS
+# =========================================================
+
 async def get_movie_details(movie_id):
     params = {
         "language": "en-US",
@@ -87,7 +103,7 @@ async def get_movie_details(movie_id):
 
 
 # =========================================================
-# /start
+# START COMMAND
 # =========================================================
 
 async def start(
@@ -141,13 +157,16 @@ async def start(
 
 
 # =========================================================
-# GENERIC MOVIE COMMAND
+# MOVIE COMMAND
 # =========================================================
 
 async def movie_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
+    if not update.message or not update.message.text:
+        return
 
     command_text = update.message.text.strip()
 
@@ -258,13 +277,15 @@ async def movie_command(
 
         await searching_message.edit_text(
             "⚠️ TMDB API နဲ့ ချိတ်ဆက်ရာမှာ "
-            "ပြဿနာဖြစ်နေပါတယ်။"
+            "ပြဿနာဖြစ်နေပါတယ်။\n\n"
+            "TMDB_TOKEN ကို စစ်ဆေးပေးပါ။"
         )
 
-    except Exception:
+    except Exception as error:
 
         logger.exception(
-            "Movie search error"
+            "Movie search error: %s",
+            error,
         )
 
         await searching_message.edit_text(
@@ -286,11 +307,11 @@ async def movie_selected(
 
     await query.answer()
 
-    movie_id = int(
-        query.data.split(":")[1]
-    )
-
     try:
+
+        movie_id = int(
+            query.data.split(":")[1]
+        )
 
         movie = await get_movie_details(
             movie_id
@@ -333,6 +354,7 @@ async def movie_selected(
             f"🎬 <b>{title}</b>\n\n"
             f"📅 Year: <b>{year}</b>\n"
             f"⭐ Rating: <b>{rating:.1f}/10</b>\n\n"
+
             f"📝 <b>Overview</b>\n"
             f"{overview}\n\n"
 
@@ -370,7 +392,10 @@ async def movie_selected(
                 + poster_path
             )
 
-            await query.message.delete()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
 
             await context.bot.send_photo(
                 chat_id=query.message.chat_id,
@@ -388,14 +413,28 @@ async def movie_selected(
                 reply_markup=keyboard,
             )
 
-    except Exception:
+    except httpx.HTTPStatusError as error:
 
-        logger.exception(
-            "Movie details error"
+        logger.error(
+            "TMDB details HTTP error: %s",
+            error,
         )
 
         await query.edit_message_text(
-            "⚠️ Movie information ရယူလို့ မရပါဘူး။"
+            "⚠️ Movie information ရယူရာမှာ "
+            "TMDB API error ဖြစ်နေပါတယ်။"
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "Movie details error: %s",
+            error,
+        )
+
+        await query.edit_message_text(
+            "⚠️ Movie information ရယူလို့ "
+            "မရပါဘူး။"
         )
 
 
@@ -413,6 +452,9 @@ async def subtitle_button(
     await query.answer()
 
     parts = query.data.split(":")
+
+    if len(parts) < 3:
+        return
 
     language = parts[1]
 
@@ -441,6 +483,32 @@ async def subtitle_button(
 
 
 # =========================================================
+# HELP COMMAND
+# =========================================================
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    text = (
+        "🎬 <b>Movie Search Bot</b>\n\n"
+
+        "Movie ရှာရန်:\n"
+        "<code>/interstellar</code>\n\n"
+
+        "<code>/inception</code>\n\n"
+
+        "<code>/avatar</code>"
+    )
+
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+    )
+
+
+# =========================================================
 # MAIN
 # =========================================================
 
@@ -462,7 +530,10 @@ def main():
         .build()
     )
 
-    # /start
+    # =====================================================
+    # COMMAND HANDLERS
+    # =====================================================
+
     application.add_handler(
         CommandHandler(
             "start",
@@ -470,17 +541,31 @@ def main():
         )
     )
 
+    application.add_handler(
+        CommandHandler(
+            "help",
+            help_command,
+        )
+    )
+
+    # =====================================================
+    # MOVIE COMMANDS
     # /interstellar
     # /avatar
     # /inception
+    # =====================================================
+
     application.add_handler(
-        CommandHandler(
-            ".*",
+        MessageHandler(
+            filters.COMMAND,
             movie_command,
         )
     )
 
-    # Movie result button
+    # =====================================================
+    # CALLBACK HANDLERS
+    # =====================================================
+
     application.add_handler(
         CallbackQueryHandler(
             movie_selected,
@@ -488,7 +573,6 @@ def main():
         )
     )
 
-    # Subtitle button
     application.add_handler(
         CallbackQueryHandler(
             subtitle_button,
@@ -496,12 +580,20 @@ def main():
         )
     )
 
+    # =====================================================
+    # START BOT
+    # =====================================================
+
     logger.info(
         "🎬 Movie Search Bot Started"
     )
 
     application.run_polling()
 
+
+# =========================================================
+# ENTRY POINT
+# =========================================================
 
 if __name__ == "__main__":
     main()
