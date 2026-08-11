@@ -26,11 +26,57 @@ from telegram.ext import (
 # CONFIG
 # =========================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-TMDB_TOKEN = os.getenv("TMDB_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+
+
+def clean_tmbd_token(value):
+    """
+    Clean TMDB Read Access Token from Render Environment Variable.
+
+    Handles:
+    - Leading/trailing spaces
+    - New lines
+    - Accidental quotes
+    - Accidental 'Bearer ' prefix
+    """
+
+    value = value.strip()
+
+    # Remove accidental quotation marks
+    if (
+        len(value) >= 2
+        and value[0] == '"'
+        and value[-1] == '"'
+    ):
+        value = value[1:-1].strip()
+
+    if (
+        len(value) >= 2
+        and value[0] == "'"
+        and value[-1] == "'"
+    ):
+        value = value[1:-1].strip()
+
+    # Remove accidental Bearer prefix
+    if value.lower().startswith("bearer "):
+        value = value[7:].strip()
+
+    # Remove invisible whitespace/newlines
+    value = "".join(value.split())
+
+    return value
+
+
+TMDB_TOKEN = clean_tmbd_token(
+    os.getenv("TMDB_TOKEN", "")
+)
+
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
-TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/w500"
+
+TMDB_IMAGE_URL = (
+    "https://image.tmdb.org/t/p/w500"
+)
 
 
 # =========================================================
@@ -38,7 +84,12 @@ TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/w500"
 # =========================================================
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - "
+        "%(name)s - "
+        "%(levelname)s - "
+        "%(message)s"
+    ),
     level=logging.INFO,
 )
 
@@ -52,33 +103,48 @@ logger = logging.getLogger(__name__)
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         self.send_response(200)
+
         self.send_header(
             "Content-Type",
             "text/plain; charset=utf-8",
         )
+
         self.end_headers()
 
         self.wfile.write(
-            b"Movie Search Bot is running!"
+            b"MM Movie Search Bot is running!"
         )
 
-    def log_message(self, format, *args):
+    def log_message(
+        self,
+        format,
+        *args,
+    ):
         return
 
 
 def start_health_server():
+
     port = int(
-        os.getenv("PORT", "10000")
+        os.getenv(
+            "PORT",
+            "10000",
+        )
     )
 
     server = HTTPServer(
-        ("0.0.0.0", port),
+        (
+            "0.0.0.0",
+            port,
+        ),
         HealthHandler,
     )
 
     logger.info(
-        f"Health server running on port {port}"
+        "Health server running on port %s",
+        port,
     )
 
     server.serve_forever()
@@ -94,6 +160,7 @@ async def tmdb_request(
 ):
 
     if not TMDB_TOKEN:
+
         raise ValueError(
             "TMDB_TOKEN မတွေ့ပါ။"
         )
@@ -165,7 +232,7 @@ async def get_movie_details(
 
 
 # =========================================================
-# START
+# /START
 # =========================================================
 
 async def start(
@@ -177,13 +244,17 @@ async def start(
         [
             InlineKeyboardButton(
                 "👨‍💻 Contact Developer",
-                url="https://t.me/superraizo7",
+                url=(
+                    "https://t.me/"
+                    "superraizo7"
+                ),
             )
         ]
     ])
 
     text = (
-        "🎬 <b>Welcome to Movie Search Bot!</b>\n\n"
+        "🎬 <b>Welcome to "
+        "MM Movie Search Bot!</b>\n\n"
 
         "ကြည့်လိုသော Movie ကို "
         "အောက်ပါပုံစံအတိုင်း ရိုက်ထည့်ပြီး "
@@ -208,8 +279,8 @@ async def start(
 
         "တို့ကို ပြသပေးပါမယ်။\n\n"
 
-        "💡 <b>Movie Title ကို English လို "
-        "ရိုက်ထည့်ပေးပါ။</b>"
+        "💡 <b>Movie Title ကို "
+        "English လို ရိုက်ထည့်ပေးပါ။</b>"
     )
 
     await update.message.reply_text(
@@ -220,7 +291,7 @@ async def start(
 
 
 # =========================================================
-# HELP
+# /HELP
 # =========================================================
 
 async def help_command(
@@ -229,7 +300,7 @@ async def help_command(
 ):
 
     text = (
-        "🎬 <b>Movie Search Bot</b>\n\n"
+        "🎬 <b>MM Movie Search Bot</b>\n\n"
 
         "Movie ရှာရန်:\n\n"
 
@@ -269,17 +340,19 @@ async def movie_command(
     if not command_text.startswith("/"):
         return
 
-    # "/" ဖယ်ပြီး Movie name ရယူ
+    # Remove /
     movie_name = (
         command_text[1:].strip()
     )
 
-    # Bot username ပါလာရင် ဖယ်
+    # Remove @botusername if present
     if "@" in movie_name:
-        movie_name = movie_name.split(
-            "@",
-            1,
-        )[0].strip()
+
+        movie_name = (
+            movie_name
+            .split("@", 1)[0]
+            .strip()
+        )
 
     if not movie_name:
 
@@ -327,7 +400,7 @@ async def movie_command(
 
             return
 
-        # ပထမဆုံး result 5 ခု
+        # Show first 5 results
         movies = movies[:5]
 
         keyboard = []
@@ -403,14 +476,39 @@ async def movie_command(
             error,
         )
 
-        await searching_message.edit_text(
-            "⚠️ TMDB API နဲ့ "
-            "ချိတ်ဆက်ရာမှာ ပြဿနာဖြစ်နေပါတယ်။\n\n"
+        status_code = (
+            error.response.status_code
+            if error.response
+            else "Unknown"
+        )
 
-            "TMDB_TOKEN ကို Render "
-            "Environment Variables ထဲမှာ "
-            "မှန်ကန်စွာ ထည့်ထားခြင်းရှိ/မရှိ "
-            "စစ်ဆေးပါ။"
+        if status_code == 401:
+
+            error_text = (
+                "⚠️ TMDB Token "
+                "မမှန်ကန်ပါ။\n\n"
+                "Render Environment Variables "
+                "ထဲက TMDB_TOKEN ကို "
+                "စစ်ဆေးပါ။"
+            )
+
+        elif status_code == 429:
+
+            error_text = (
+                "⚠️ TMDB API request "
+                "limit ရောက်နေပါတယ်။ "
+                "ခဏစောင့်ပြီး ပြန်စမ်းပါ။"
+            )
+
+        else:
+
+            error_text = (
+                "⚠️ TMDB API နဲ့ "
+                "ချိတ်ဆက်ရာမှာ ပြဿနာဖြစ်နေပါတယ်။"
+            )
+
+        await searching_message.edit_text(
+            error_text
         )
 
     except Exception as error:
@@ -476,6 +574,7 @@ async def movie_selected(
         )
 
         if not overview:
+
             overview = (
                 "Overview မရှိပါ။"
             )
@@ -537,8 +636,11 @@ async def movie_selected(
             )
 
             try:
+
                 await query.message.delete()
+
             except Exception:
+
                 pass
 
             await context.bot.send_photo(
@@ -637,7 +739,7 @@ async def subtitle_button(
 def main():
 
     # -----------------------------------------------------
-    # Check Environment Variables
+    # Environment Variables Check
     # -----------------------------------------------------
 
     if not BOT_TOKEN:
@@ -657,7 +759,7 @@ def main():
         )
 
     # -----------------------------------------------------
-    # Start Render Health Server
+    # Render Health Server
     # -----------------------------------------------------
 
     health_thread = threading.Thread(
@@ -678,7 +780,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Commands
+    # /start
     # -----------------------------------------------------
 
     application.add_handler(
@@ -687,6 +789,10 @@ def main():
             start,
         )
     )
+
+    # -----------------------------------------------------
+    # /help
+    # -----------------------------------------------------
 
     application.add_handler(
         CommandHandler(
@@ -699,8 +805,8 @@ def main():
     # Movie Commands
     #
     # /interstellar
-    # /avatar
     # /inception
+    # /avatar
     # -----------------------------------------------------
 
     application.add_handler(
@@ -733,11 +839,11 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Start
+    # Start Bot
     # -----------------------------------------------------
 
     logger.info(
-        "🎬 Movie Search Bot Started"
+        "🎬 MM Movie Search Bot Started"
     )
 
     application.run_polling()
