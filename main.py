@@ -3,6 +3,7 @@ import logging
 import html
 
 import httpx
+from dotenv import load_dotenv
 
 from telegram import (
     Update,
@@ -12,27 +13,52 @@ from telegram import (
 
 from telegram.ext import (
     Application,
-    CommandHandler,
     CallbackQueryHandler,
-    MessageHandler,
+    CommandHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
+
+
+# =========================================================
+# LOAD ENVIRONMENT VARIABLES
+# =========================================================
+
+load_dotenv()
 
 
 # =========================================================
 # CONFIG
 # =========================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-TMDB_TOKEN = os.getenv("TMDB_TOKEN", "").strip()
-OPENSUBTITLES_API_KEY = os.getenv(
-    "OPENSUBTITLES_API_KEY",
-    "",
+BOT_TOKEN = os.getenv(
+    "BOT_TOKEN",
+    ""
 ).strip()
 
-TMDB_BASE_URL = "https://api.themoviedb.org/3"
-TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/w500"
+TMDB_TOKEN = os.getenv(
+    "TMDB_TOKEN",
+    ""
+).strip()
+
+OPENSUBTITLES_API_KEY = os.getenv(
+    "OPENSUBTITLES_API_KEY",
+    ""
+).strip()
+
+
+# =========================================================
+# API URLs
+# =========================================================
+
+TMDB_BASE_URL = (
+    "https://api.themoviedb.org/3"
+)
+
+TMDB_IMAGE_URL = (
+    "https://image.tmdb.org/t/p/w500"
+)
 
 OPENSUBTITLES_BASE_URL = (
     "https://api.opensubtitles.com/api/v1"
@@ -61,7 +87,7 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# TMDB API
+# TMDB REQUEST
 # =========================================================
 
 async def tmdb_request(
@@ -69,10 +95,10 @@ async def tmdb_request(
     params=None,
 ):
     """
-    TMDB API request.
+    Make request to TMDB API.
 
-    TMDB_TOKEN က Read Access Token ဖြစ်လို့
-    Authorization: Bearer TOKEN ကို အသုံးပြုပါတယ်။
+    TMDB Read Access Token ကို
+    Bearer Token အဖြစ်အသုံးပြုပါတယ်။
     """
 
     if not TMDB_TOKEN:
@@ -103,10 +129,12 @@ async def tmdb_request(
 
 
 # =========================================================
-# SEARCH MOVIES
+# TMDB MOVIE SEARCH
 # =========================================================
 
-async def search_movies(movie_name):
+async def search_movies(
+    movie_name,
+):
     params = {
         "query": movie_name,
         "language": "en-US",
@@ -126,10 +154,12 @@ async def search_movies(movie_name):
 
 
 # =========================================================
-# MOVIE DETAILS
+# TMDB MOVIE DETAILS
 # =========================================================
 
-async def get_movie_details(movie_id):
+async def get_movie_details(
+    movie_id,
+):
     params = {
         "language": "en-US",
     }
@@ -141,26 +171,47 @@ async def get_movie_details(movie_id):
 
 
 # =========================================================
-# OPENSUBTITLES API
+# TMDB EXTERNAL IDs
+# =========================================================
+
+async def get_movie_external_ids(
+    movie_id,
+):
+    """
+    Get IMDb ID and other external IDs
+    from TMDB.
+    """
+
+    return await tmdb_request(
+        f"/movie/{movie_id}/external_ids"
+    )
+
+
+# =========================================================
+# OPENSUBTITLES SEARCH
 # =========================================================
 
 async def search_opensubtitles(
-    movie_name,
-    language,
+    movie_name=None,
+    language="en",
     year=None,
+    imdb_id=None,
 ):
     """
-    OpenSubtitles subtitle search.
+    Search OpenSubtitles.
+
+    Priority:
+
+    1. IMDb ID
+    2. Movie title
 
     language:
-        my = Myanmar/Burmese
+        my = Burmese / Myanmar
         en = English
-
-    Returns:
-        list
     """
 
     if not OPENSUBTITLES_API_KEY:
+
         logger.warning(
             "OPENSUBTITLES_API_KEY is not configured."
         )
@@ -174,12 +225,30 @@ async def search_opensubtitles(
     }
 
     params = {
-        "query": movie_name,
         "languages": language,
     }
 
-    if year:
-        params["year"] = year
+    # -----------------------------------------
+    # Prefer IMDb ID
+    # -----------------------------------------
+
+    if imdb_id:
+
+        params["imdb_id"] = str(
+            imdb_id
+        )
+
+    # -----------------------------------------
+    # Fallback to title search
+    # -----------------------------------------
+
+    elif movie_name:
+
+        params["query"] = movie_name
+
+        if year:
+
+            params["year"] = year
 
     try:
 
@@ -234,16 +303,19 @@ async def check_subtitle(
     movie_name,
     language,
     year=None,
+    imdb_id=None,
 ):
     """
-    Returns True if at least one subtitle
-    result is found.
+    Returns:
+        True  = subtitle found
+        False = subtitle not found
     """
 
     results = await search_opensubtitles(
         movie_name=movie_name,
         language=language,
         year=year,
+        imdb_id=imdb_id,
     )
 
     return len(results) > 0
@@ -262,13 +334,16 @@ async def start(
         [
             InlineKeyboardButton(
                 "👨‍💻 Contact Developer",
-                url="https://t.me/superraizo7",
+                url=(
+                    "https://t.me/"
+                    "superraizo7"
+                ),
             )
         ]
     ])
 
     text = (
-        "🎬 <b>Welcome to Movie Search Bot!</b>\n\n"
+        "🎬 <b>Welcome to MM Movie Search Bot!</b>\n\n"
 
         "ကြည့်လိုသော Movie ကို အောက်ပါပုံစံအတိုင်း "
         "ရိုက်ထည့်ပြီး ရှာဖွေနိုင်ပါတယ် 👇\n\n"
@@ -282,7 +357,7 @@ async def start(
 
         "<code>/avatar</code>\n\n"
 
-        "🔎 Bot က Movie ကိုရှာပြီး —\n\n"
+        "🔎 Bot က Movie ကို အလိုအလျောက်ရှာပြီး —\n\n"
 
         "🎬 Movie Title\n"
         "🖼️ Poster\n"
@@ -316,17 +391,22 @@ async def help_command(
 ):
 
     await update.message.reply_text(
-        "🎬 <b>Movie Search Bot အသုံးပြုပုံ</b>\n\n"
-        "Movie ရှာရန် —\n"
-        "<code>/interstellar</code>\n\n"
-        "<code>/inception</code>\n\n"
-        "Movie title ကို English လို ရိုက်ထည့်ပါ။",
+        "🎬 <b>Movie Search Bot</b>\n\n"
+
+        "Movie ရှာရန် —\n\n"
+
+        "<code>/interstellar</code>\n"
+        "<code>/inception</code>\n"
+        "<code>/avatar</code>\n\n"
+
+        "Movie title ကို English လို "
+        "ရိုက်ထည့်ပါ။",
         parse_mode="HTML",
     )
 
 
 # =========================================================
-# GENERIC MOVIE COMMAND
+# MOVIE COMMAND
 # =========================================================
 
 async def movie_command(
@@ -341,8 +421,10 @@ async def movie_command(
         update.message.text.strip()
     )
 
-    # "/" ဖယ်ပြီး Movie title ရယူ
-    movie_name = command_text[1:].strip()
+    # Remove "/"
+    movie_name = (
+        command_text[1:].strip()
+    )
 
     if not movie_name:
 
@@ -355,7 +437,7 @@ async def movie_command(
 
         return
 
-    # System commands
+    # Ignore system commands
     blocked_commands = {
         "start",
         "help",
@@ -363,6 +445,21 @@ async def movie_command(
 
     if movie_name.lower() in blocked_commands:
         return
+
+    await search_and_show_results(
+        update,
+        movie_name,
+    )
+
+
+# =========================================================
+# SEARCH AND SHOW RESULTS
+# =========================================================
+
+async def search_and_show_results(
+    update,
+    movie_name,
+):
 
     searching_message = (
         await update.message.reply_text(
@@ -393,7 +490,7 @@ async def movie_command(
 
             return
 
-        # ပထမဆုံး result 5 ခု
+        # First 5 results
         movies = movies[:5]
 
         keyboard = []
@@ -402,7 +499,9 @@ async def movie_command(
             movies
         ):
 
-            movie_id = movie.get("id")
+            movie_id = movie.get(
+                "id"
+            )
 
             title = movie.get(
                 "title",
@@ -426,11 +525,16 @@ async def movie_command(
             )
 
             try:
-                rating = float(rating)
+
+                rating = float(
+                    rating
+                )
+
             except (
                 TypeError,
                 ValueError,
             ):
+
                 rating = 0.0
 
             button_text = (
@@ -525,6 +629,10 @@ async def movie_selected(
 
     try:
 
+        # -----------------------------------------
+        # TMDB Movie Details
+        # -----------------------------------------
+
         movie = await get_movie_details(
             movie_id
         )
@@ -557,11 +665,16 @@ async def movie_selected(
         )
 
         try:
-            rating = float(rating)
+
+            rating = float(
+                rating
+            )
+
         except (
             TypeError,
             ValueError,
         ):
+
             rating = 0.0
 
         overview = movie.get(
@@ -570,6 +683,7 @@ async def movie_selected(
         )
 
         if not overview:
+
             overview = (
                 "Overview မရှိပါ။"
             )
@@ -579,29 +693,62 @@ async def movie_selected(
         )
 
         # -----------------------------------------
-        # Subtitle Checking
+        # Get IMDb ID
         # -----------------------------------------
 
-        subtitle_message = (
+        imdb_id = None
+
+        try:
+
+            external_ids = (
+                await get_movie_external_ids(
+                    movie_id
+                )
+            )
+
+            imdb_id = external_ids.get(
+                "imdb_id"
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed to get IMDb ID"
+            )
+
+        logger.info(
+            "Movie: %s | TMDB ID: %s | IMDb ID: %s",
+            title,
+            movie_id,
+            imdb_id,
+        )
+
+        # -----------------------------------------
+        # Initial Loading Message
+        # -----------------------------------------
+
+        loading_text = (
+            f"🎬 <b>{html.escape(title)}</b>\n\n"
+
+            f"📅 Year: <b>{year_text}</b>\n"
+
+            f"⭐ Rating: "
+            f"<b>{rating:.1f}/10</b>\n\n"
+
+            "📝 <b>Overview</b>\n"
+            f"{html.escape(overview)}\n\n"
+
             "🔎 <b>Subtitle စစ်ဆေးနေပါတယ်...</b>"
         )
 
-        initial_text = (
-            f"🎬 <b>{html.escape(title)}</b>\n\n"
-            f"📅 Year: <b>{year_text}</b>\n"
-            f"⭐ Rating: <b>{rating:.1f}/10</b>\n\n"
-            "📝 <b>Overview</b>\n"
-            f"{html.escape(overview)}\n\n"
-            f"{subtitle_message}"
-        )
-
-        # Temporary keyboard
         loading_keyboard = (
             InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
                         "⏳ Checking...",
-                        callback_data="checking",
+                        callback_data=(
+                            "checking"
+                        ),
                     )
                 ],
                 [
@@ -617,20 +764,30 @@ async def movie_selected(
         )
 
         # -----------------------------------------
-        # Subtitle check
+        # Check Myanmar Subtitle
         # -----------------------------------------
 
         mm_subtitle = await check_subtitle(
             movie_name=title,
             language="my",
             year=year,
+            imdb_id=imdb_id,
         )
+
+        # -----------------------------------------
+        # Check English Subtitle
+        # -----------------------------------------
 
         en_subtitle = await check_subtitle(
             movie_name=title,
             language="en",
             year=year,
+            imdb_id=imdb_id,
         )
+
+        # -----------------------------------------
+        # Result Text
+        # -----------------------------------------
 
         mm_text = (
             "✅ Available"
@@ -662,9 +819,12 @@ async def movie_selected(
             f"<b>{en_text}</b>"
         )
 
+        # -----------------------------------------
+        # Buttons
+        # -----------------------------------------
+
         keyboard = []
 
-        # Myanmar button only if available
         if mm_subtitle:
 
             keyboard.append([
@@ -676,7 +836,6 @@ async def movie_selected(
                 )
             ])
 
-        # English button only if available
         if en_subtitle:
 
             keyboard.append([
@@ -705,7 +864,7 @@ async def movie_selected(
         )
 
         # -----------------------------------------
-        # Poster
+        # Send Poster
         # -----------------------------------------
 
         if poster_path:
@@ -778,7 +937,9 @@ async def subtitle_button(
 
         language = parts[1]
 
-        movie_id = int(parts[2])
+        movie_id = int(
+            parts[2]
+        )
 
     except (
         IndexError,
@@ -794,6 +955,10 @@ async def subtitle_button(
 
     try:
 
+        # -----------------------------------------
+        # Get Movie
+        # -----------------------------------------
+
         movie = await get_movie_details(
             movie_id
         )
@@ -802,6 +967,45 @@ async def subtitle_button(
             "title",
             "Unknown",
         )
+
+        release_date = movie.get(
+            "release_date",
+            "",
+        )
+
+        year = (
+            release_date[:4]
+            if release_date
+            else None
+        )
+
+        # -----------------------------------------
+        # Get IMDb ID
+        # -----------------------------------------
+
+        imdb_id = None
+
+        try:
+
+            external_ids = (
+                await get_movie_external_ids(
+                    movie_id
+                )
+            )
+
+            imdb_id = external_ids.get(
+                "imdb_id"
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Subtitle: IMDb ID error"
+            )
+
+        # -----------------------------------------
+        # Language
+        # -----------------------------------------
 
         if language == "mm":
 
@@ -819,44 +1023,50 @@ async def subtitle_button(
 
             language_code = "en"
 
-        release_date = movie.get(
-            "release_date",
-            "",
-        )
-
-        year = (
-            release_date[:4]
-            if release_date
-            else None
-        )
+        # -----------------------------------------
+        # Search
+        # -----------------------------------------
 
         await query.message.reply_text(
             "🔎 <b>Subtitle ရှာနေပါတယ်...</b>",
             parse_mode="HTML",
         )
 
-        results = await search_opensubtitles(
-            movie_name=title,
-            language=language_code,
-            year=year,
+        results = (
+            await search_opensubtitles(
+                movie_name=title,
+                language=language_code,
+                year=year,
+                imdb_id=imdb_id,
+            )
         )
+
+        # -----------------------------------------
+        # Result
+        # -----------------------------------------
 
         if results:
 
             text = (
                 f"{language_name}\n\n"
+
                 f"🎬 <b>{html.escape(title)}</b>\n\n"
+
                 "✅ <b>Available</b>\n\n"
+
                 f"Subtitle result "
-                f"{len(results)} ခုတွေ့ပါတယ်။"
+                f"<b>{len(results)}</b> ခုတွေ့ပါတယ်။"
             )
 
         else:
 
             text = (
                 f"{language_name}\n\n"
+
                 f"🎬 <b>{html.escape(title)}</b>\n\n"
+
                 "❌ <b>Not Found</b>\n\n"
+
                 "ဒီ Movie အတွက် ဒီ language "
                 "နဲ့ subtitle မတွေ့ပါ။"
             )
@@ -879,18 +1089,13 @@ async def subtitle_button(
 
 
 # =========================================================
-# TEXT MESSAGE
+# NORMAL TEXT MOVIE SEARCH
 # =========================================================
 
 async def text_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-
-    """
-    Customer က / မပါဘဲ movie title
-    ရိုက်ထည့်ရင်လည်း ရှာပေးနိုင်အောင်
-    """
 
     if not update.message:
         return
@@ -905,133 +1110,14 @@ async def text_message(
     if not text:
         return
 
-    # Command မဟုတ်ရင် movie search
-    if not text.startswith("/"):
+    # Ignore commands
+    if text.startswith("/"):
+        return
 
-        await movie_search_by_text(
-            update,
-            context,
-            text,
-        )
-
-
-# =========================================================
-# MOVIE SEARCH BY NORMAL TEXT
-# =========================================================
-
-async def movie_search_by_text(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    movie_name,
-):
-
-    searching_message = (
-        await update.message.reply_text(
-            "🔎 <b>Movie ရှာနေပါတယ်...</b>",
-            parse_mode="HTML",
-        )
+    await search_and_show_results(
+        update,
+        text,
     )
-
-    try:
-
-        movies = await search_movies(
-            movie_name
-        )
-
-        if not movies:
-
-            safe_name = html.escape(
-                movie_name
-            )
-
-            await searching_message.edit_text(
-                f"❌ <b>{safe_name}</b> ကို "
-                "မတွေ့ပါဘူး။",
-                parse_mode="HTML",
-            )
-
-            return
-
-        movies = movies[:5]
-
-        keyboard = []
-
-        for index, movie in enumerate(
-            movies
-        ):
-
-            movie_id = movie.get("id")
-
-            title = movie.get(
-                "title",
-                "Unknown",
-            )
-
-            release_date = movie.get(
-                "release_date",
-                "",
-            )
-
-            year = (
-                release_date[:4]
-                if release_date
-                else "N/A"
-            )
-
-            rating = movie.get(
-                "vote_average",
-                0,
-            )
-
-            try:
-                rating = float(rating)
-            except (
-                TypeError,
-                ValueError,
-            ):
-                rating = 0.0
-
-            keyboard.append([
-                InlineKeyboardButton(
-                    (
-                        f"{index + 1}️⃣ "
-                        f"{title} ({year}) "
-                        f"⭐ {rating:.1f}"
-                    ),
-                    callback_data=(
-                        f"movie:{movie_id}"
-                    ),
-                )
-            ])
-
-        safe_name = html.escape(
-            movie_name
-        )
-
-        await searching_message.edit_text(
-            (
-                "🔎 <b>Search Results</b>\n\n"
-                f"Search: <code>{safe_name}</code>\n\n"
-                "မှန်ကန်တဲ့ Movie ကို ရွေးပါ 👇"
-            ),
-            parse_mode="HTML",
-            reply_markup=(
-                InlineKeyboardMarkup(
-                    keyboard
-                )
-            ),
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Normal text movie search error"
-        )
-
-        await searching_message.edit_text(
-            "⚠️ Movie ရှာတဲ့အချိန် "
-            "Error ဖြစ်သွားပါတယ်။"
-        )
 
 
 # =========================================================
@@ -1057,7 +1143,7 @@ async def error_handler(
 def main():
 
     # -----------------------------------------
-    # Environment variable validation
+    # Check BOT TOKEN
     # -----------------------------------------
 
     if not BOT_TOKEN:
@@ -1068,6 +1154,10 @@ def main():
             "မှာ BOT_TOKEN ထည့်ပါ။"
         )
 
+    # -----------------------------------------
+    # Check TMDB TOKEN
+    # -----------------------------------------
+
     if not TMDB_TOKEN:
 
         raise ValueError(
@@ -1075,6 +1165,10 @@ def main():
             "Render Environment Variables "
             "မှာ TMDB_TOKEN ထည့်ပါ။"
         )
+
+    # -----------------------------------------
+    # Check OpenSubtitles API Key
+    # -----------------------------------------
 
     if not OPENSUBTITLES_API_KEY:
 
@@ -1084,7 +1178,7 @@ def main():
         )
 
     # -----------------------------------------
-    # Application
+    # Create Application
     # -----------------------------------------
 
     application = (
@@ -1094,7 +1188,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Commands
+    # /start
     # -----------------------------------------
 
     application.add_handler(
@@ -1104,6 +1198,10 @@ def main():
         )
     )
 
+    # -----------------------------------------
+    # /help
+    # -----------------------------------------
+
     application.add_handler(
         CommandHandler(
             "help",
@@ -1112,28 +1210,31 @@ def main():
     )
 
     # -----------------------------------------
-    # Movie commands
+    # Movie Commands
     #
     # IMPORTANT:
     # CommandHandler(".*") မသုံးပါ။
-    # အဲဒါက invalid bot command ဖြစ်ပါတယ်။
     #
-    # Regex command name မရတဲ့အတွက်
-    # MessageHandler နဲ့ "/" စတဲ့
-    # message တွေကို movie command အဖြစ်
-    # handle လုပ်ပါတယ်။
+    # MessageHandler နဲ့ /interstellar
+    # လို command တွေကို ဖမ်းပါတယ်။
     # -----------------------------------------
 
     application.add_handler(
         MessageHandler(
             filters.TEXT
-            & filters.Regex(r"^/[A-Za-z0-9].*"),
+            & filters.Regex(
+                r"^/[A-Za-z0-9].*"
+            ),
             movie_command,
         )
     )
 
     # -----------------------------------------
-    # Normal text movie search
+    # Normal Text Search
+    #
+    # Interstellar
+    # Inception
+    # Avatar
     # -----------------------------------------
 
     application.add_handler(
@@ -1145,7 +1246,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Movie result button
+    # Movie Selection
     # -----------------------------------------
 
     application.add_handler(
@@ -1156,7 +1257,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Subtitle button
+    # Subtitle Selection
     # -----------------------------------------
 
     application.add_handler(
@@ -1167,7 +1268,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Error handler
+    # Error Handler
     # -----------------------------------------
 
     application.add_error_handler(
@@ -1175,7 +1276,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Startup log
+    # Logs
     # -----------------------------------------
 
     logger.info(
@@ -1204,7 +1305,7 @@ def main():
     )
 
     # -----------------------------------------
-    # Run
+    # Start Polling
     # -----------------------------------------
 
     application.run_polling(
